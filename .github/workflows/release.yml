@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag (vX.Y.Z)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out launcher
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/launcher
+          ref: ${{ inputs.tag || github.ref_name }}
+          path: launcher
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Read and validate release definition
+        id: release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $property = Get-Content -LiteralPath 'launcher/gradle.properties' |
+            Where-Object { $_ -match '^hhClickerVersion=' } |
+            Select-Object -First 1
+          if (-not $property) { throw 'hhClickerVersion is missing from gradle.properties.' }
+
+          $version = ($property -split '=', 2)[1].Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release version: $version" }
+          $tag = "v$version"
+          if ($env:RELEASE_TAG -ne $tag) { throw "Workflow tag must match launcher version $version." }
+          $definitionPath = "launcher/releases/$version/release.json"
+          if (-not (Test-Path -LiteralPath $definitionPath -PathType Leaf)) {
+            throw "Release definition is missing: $definitionPath"
+          }
+
+          $release = Get-Content -Raw -LiteralPath $definitionPath | ConvertFrom-Json
+          if ($release.version -ne $version) {
+            throw "Release definition version $($release.version) does not match $version."
+          }
+
+          $head = (git -C launcher rev-parse HEAD).Trim()
+          $tagCommit = (git -C launcher rev-parse "refs/tags/$tag^{commit}" 2>$null).Trim()
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $head) {
+            throw "Tag $tag must exist and point to launcher commit $head."
+          }
+
+          $pins = @('backend', 'browser-agent', 'frontend', 'generation-agent', 'infra')
+          foreach ($name in $pins) {
+            $commit = [string]$release.repositories.$name.commit
+            if ($commit -notmatch '^[0-9a-f]{40}$') { throw "Invalid pinned commit for $name." }
+            "$($name.Replace('-', '_'))=$commit" >> $env:GITHUB_OUTPUT
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Check out backend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/backend
+          ref: ${{ steps.release.outputs.backend }}
+          path: backend
+          persist-credentials: false
+
+      - name: Check out Browser Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/browser-agent
+          ref: ${{ steps.release.outputs.browser_agent }}
+          path: browser-agent
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/frontend
+          ref: ${{ steps.release.outputs.frontend }}
+          path: frontend
+          persist-credentials: false
+
+      - name: Check out Generation Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/generation-agent
+          ref: ${{ steps.release.outputs.generation_agent }}
+          path: generation-agent
+          persist-credentials: false
+
+      - name: Check out infrastructure
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/infra
+          ref: ${{ steps.release.outputs.infra }}
+          path: infra
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        working-directory: launcher
+        shell: pwsh
+        run: .\gradlew.bat :desktopApp:packageWindowsInstaller --no-daemon
+
+      - name: Prepare release assets
+        id: assets
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-Item -LiteralPath "launcher/desktopApp/build/compose/binaries/main/installer/HH-Clicker-Setup-$env:VERSION.exe"
+          $checksum = "$($installer.FullName).sha256"
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText($checksum, "$hash  $($installer.Name)`n", [System.Text.Encoding]::ASCII)
+
+          $notes = Get-Content -LiteralPath "launcher/releases/$env:VERSION/notes.ru.md"
+          if ($notes.Count -gt 0 -and $notes[0] -match '^#\s+') { $notes = $notes | Select-Object -Skip 1 }
+          while ($notes.Count -gt 0 -and [string]::IsNullOrWhiteSpace($notes[0])) {
+            $notes = $notes | Select-Object -Skip 1
+          }
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          [System.IO.File]::WriteAllLines($notesPath, [string[]]$notes, [System.Text.UTF8Encoding]::new($false))
+
+          "installer=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+          "checksum=$checksum" >> $env:GITHUB_OUTPUT
+          "notes=$notesPath" >> $env:GITHUB_OUTPUT
+
+      - name: Create or update draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          INSTALLER: ${{ steps.assets.outputs.installer }}
+          CHECKSUM: ${{ steps.assets.outputs.checksum }}
+          NOTES: ${{ steps.assets.outputs.notes }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $isDraft = gh release view $env:TAG --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($isDraft.Trim() -ne 'true') { throw 'Published releases are immutable. Use a new version.' }
+            gh release upload $env:TAG $env:INSTALLER $env:CHECKSUM --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to upload release assets.' }
+            gh release edit $env:TAG --title "HH Clicker $env:VERSION" --notes-file $env:NOTES
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to update the release.' }
+          } else {
+            gh release create $env:TAG $env:INSTALLER $env:CHECKSUM `
+              --verify-tag `
+              --draft `
+              --title "HH Clicker $env:VERSION" `
+              --notes-file $env:NOTES
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to create the draft release.' }
+          }
