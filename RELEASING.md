@@ -82,6 +82,28 @@ gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f ver
 Значение `version` должно быть не ниже базовой версии в `launcher/gradle.properties`.
 Перед добавлением Linux-файла к draft-релизу проверьте его запуск на Debian 13 и Arch.
 
+## Пробные macOS-сборки
+
+Два независимых workflow запускаются вручную и собирают неподписанные nightly DMG:
+
+- `macos-dmg-intel.yml` — Intel x64, runner `macos-15-intel`.
+- `macos-dmg-arm64.yml` — Apple Silicon arm64, runner `macos-15`.
+
+Параметры `version`, `launcher_ref` и `service_ref` совпадают с пробной Linux-сборкой.
+Launcher и пять сервисов берутся из GitHub; локальные изменения сначала нужно отправить
+в выбранные ветки. Для launcher требуется версия кода с macOS-упаковкой.
+
+```powershell
+gh workflow run macos-dmg-intel.yml --repo hh-clicker/.github --ref master -f version=2.1.1 -f launcher_ref=master -f service_ref=master
+gh workflow run macos-dmg-arm64.yml --repo hh-clicker/.github --ref master -f version=2.1.1 -f launcher_ref=master -f service_ref=master
+```
+
+Каждый workflow проверяет архитектуру приложения и встроенной JVM, наличие Browser Agent,
+минимальную macOS 14 и целостность DMG. Файл `HH-Clicker-<version>-nightly-macos-<arch>.dmg`
+и SHA-256 хранятся в artifacts 7 дней. Теги и релизы эти workflow не создают.
+Пакеты не подписаны и не нотарифицированы. Успешная сборка не заменяет ручную проверку
+установки и работы приложения на соответствующей архитектуре.
+
 ## Критические обновления
 
 Лаунчер сверяет последнюю опубликованную стабильную версию с `update-policy.json` в этом репозитории.

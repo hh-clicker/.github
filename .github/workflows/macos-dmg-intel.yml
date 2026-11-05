@@ -1,0 +1,159 @@
+name: macOS x64 DMG trial
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nightly version (X.Y.Z)'
+        required: true
+        type: string
+      launcher_ref:
+        description: 'Launcher branch, tag or commit'
+        required: true
+        default: master
+        type: string
+      service_ref:
+        description: 'Branch, tag or commit for the five service repositories'
+        required: true
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-dmg-intel-trial
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build nightly macOS x64 DMG
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ inputs.version }}
+      EXPECTED_ARCH: x86_64
+      ARTIFACT_ARCH: x64
+
+    steps:
+      - name: Validate version
+        shell: bash
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be X.Y.Z' >&2; exit 1; }
+
+      - name: Check out launcher
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/launcher
+          ref: ${{ inputs.launcher_ref }}
+          path: launcher
+          persist-credentials: false
+
+      - name: Check out backend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/backend
+          ref: ${{ inputs.service_ref }}
+          path: backend
+          persist-credentials: false
+
+      - name: Check out Browser Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/browser-agent
+          ref: ${{ inputs.service_ref }}
+          path: browser-agent
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/frontend
+          ref: ${{ inputs.service_ref }}
+          path: frontend
+          persist-credentials: false
+
+      - name: Check out Generation Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/generation-agent
+          ref: ${{ inputs.service_ref }}
+          path: generation-agent
+          persist-credentials: false
+
+      - name: Check out infrastructure
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/infra
+          ref: ${{ inputs.service_ref }}
+          path: infra
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          architecture: x64
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          architecture: x64
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Check build architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          node -e 'if (process.arch !== process.argv[1]) process.exit(1)' "x64"
+
+      - name: Build nightly DMG
+        working-directory: launcher
+        shell: bash
+        run: bash ./gradlew :desktopApp:packageDmg -Pnightly "-PnightlyVersion=$VERSION" --no-daemon --console=plain
+
+      - name: Verify package and write checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="launcher/desktopApp/build/compose/binaries/main/app/HH Clicker Launcher.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = org.hhclicker.launcher
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" = 14.0
+          test -s "$app/Contents/app/resources/.hh-clicker-bundle"
+          test -s "$app/Contents/app/resources/browser-agent/dist/main.js"
+          test -s "$app/Contents/app/resources/release-manifest.json"
+          test "$(lipo -archs "$app/Contents/MacOS/HH Clicker Launcher")" = "$EXPECTED_ARCH"
+          jvm="$(find "$app/Contents/runtime" -type f -name libjvm.dylib -print)"
+          test -f "$jvm"
+          test "$(lipo -archs "$jvm")" = "$EXPECTED_ARCH"
+          source="launcher/desktopApp/build/compose/binaries/main/dmg/HH Clicker Launcher-${VERSION}.dmg"
+          test -s "$source"
+          hdiutil verify "$source"
+          destination="artifacts/macos-$ARTIFACT_ARCH"
+          mkdir -p "$destination"
+          file="HH-Clicker-${VERSION}-nightly-macos-${ARTIFACT_ARCH}.dmg"
+          cp "$source" "$destination/$file"
+          cd "$destination"
+          shasum -a 256 "$file" > "$file.sha256"
+
+      - name: Upload DMG and checksum
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-dmg-x64-${{ inputs.version }}
+          path: |
+            artifacts/macos-x64/*.dmg
+            artifacts/macos-x64/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
