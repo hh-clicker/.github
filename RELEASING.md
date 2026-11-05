@@ -1,6 +1,6 @@
 # Выпуск HH Clicker
 
-Release workflow находится в этом репозитории. Push тега `vX.Y.Z` запускает Windows-сборку
+Release workflow находится в этом репозитории. Push тега `vX.Y.Z` запускает Windows-сборку и затем Linux-сборку
 и создаёт draft-релиз здесь. Обычный push ветки сборку релиза не запускает.
 Каталог версий и pinned SHA остаётся в [launcher/releases](https://github.com/hh-clicker/launcher/tree/master/releases).
 
@@ -32,8 +32,9 @@ Rollback установщика восстанавливает application, но
 
 ## Сборка и draft
 
-Runner устанавливает Java 21 для launcher, Node.js 24 и Inno Setup. Gradle собирает
-installer из согласованного исходного дерева. Для публичных компонентов достаточно
+Windows runner устанавливает Java 21 для launcher, Node.js 24 и Inno Setup. После создания draft
+Linux runner собирает stable AppImage и загружает его вместе с SHA-256. Gradle собирает
+артефакты из согласованного исходного дерева. Для публичных компонентов достаточно
 стандартного github.token. При чтении приватных компонентов нужен отдельный secret
 RELEASE_REPOSITORIES_TOKEN с правом чтения; не записывайте его в файлы проекта.
 
@@ -80,3 +81,11 @@ gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f ver
 
 Значение `version` должно быть не ниже базовой версии в `launcher/gradle.properties`.
 Перед добавлением Linux-файла к draft-релизу проверьте его запуск на Debian 13 и Arch.
+
+## Критические обновления
+
+Лаунчер сверяет последнюю опубликованную стабильную версию с `update-policy.json` в этом репозитории.
+Если старая версия больше не работает (например, после несовместимого изменения HH), поднимите
+`minimumSupportedVersion` до первого релиза с исправлением и отправьте изменение в `master`.
+Значение должно быть не выше последнего опубликованного релиза; обычное обновление не требует
+изменения файла. Понижать порог после следующего релиза не нужно: он относится ко всем старым версиям.

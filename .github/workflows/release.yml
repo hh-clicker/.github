@@ -196,3 +196,129 @@ jobs:
               --notes-file $env:NOTES
             if ($LASTEXITCODE -ne 0) { throw 'Failed to create the draft release.' }
           }
+
+  linux:
+    name: Build Linux AppImage
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out launcher
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/launcher
+          ref: ${{ inputs.tag || github.ref_name }}
+          path: launcher
+          persist-credentials: false
+
+      - name: Read and validate release definition
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${RELEASE_TAG#v}"
+          grep -qx "hhClickerVersion=$version" launcher/gradle.properties
+          definition="launcher/releases/$version/release.json"
+          test -f "$definition"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$definition")" = "$version"
+          for name in backend browser-agent frontend generation-agent infra; do
+            commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["repositories"][sys.argv[2]]["commit"])' "$definition" "$name")"
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+            echo "${name//-/_}=$commit" >> "$GITHUB_OUTPUT"
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check out backend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/backend
+          ref: ${{ steps.release.outputs.backend }}
+          path: backend
+          persist-credentials: false
+
+      - name: Check out Browser Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/browser-agent
+          ref: ${{ steps.release.outputs.browser_agent }}
+          path: browser-agent
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/frontend
+          ref: ${{ steps.release.outputs.frontend }}
+          path: frontend
+          persist-credentials: false
+
+      - name: Check out Generation Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/generation-agent
+          ref: ${{ steps.release.outputs.generation_agent }}
+          path: generation-agent
+          persist-credentials: false
+
+      - name: Check out infrastructure
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/infra
+          ref: ${{ steps.release.outputs.infra }}
+          path: infra
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install AppImage build tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --location --retry 3 \
+            --output "$HOME/.local/bin/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$HOME/.local/bin/appimagetool"
+
+      - name: Build stable AppImage
+        working-directory: launcher
+        shell: bash
+        run: bash ./gradlew :desktopApp:packageLinuxAppImage --no-daemon --console=plain
+
+      - name: Upload AppImage to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          directory=launcher/desktopApp/build/compose/binaries/main/appimage
+          file="$directory/HH-Clicker-$VERSION-x86_64.AppImage"
+          test -s "$file"
+          (cd "$directory" && sha256sum "$(basename "$file")" > "$(basename "$file").sha256")
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+          gh release upload "$RELEASE_TAG" "$file" "$file.sha256" --clobber

@@ -27,7 +27,7 @@
 
 ---
 
-Stable-установщик доступен для Windows. Linux AppImage пока проходит проверку;
+Начиная с версии 2.1.0 доступны Windows-установщик и Linux AppImage для x86_64;
 [отдельная инструкция для Linux](https://github.com/hh-clicker/launcher/blob/master/LINUX.md)
 описывает его запуск и работу из исходников без лаунчера.
 
