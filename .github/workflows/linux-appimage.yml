@@ -1,0 +1,143 @@
+name: Linux AppImage trial
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nightly version (X.Y.Z)'
+        required: true
+        type: string
+      launcher_ref:
+        description: 'Launcher branch, tag or commit'
+        required: true
+        default: master
+        type: string
+      service_ref:
+        description: 'Branch, tag or commit for the five service repositories'
+        required: true
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-appimage-trial
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build nightly AppImage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Validate version
+        shell: bash
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be X.Y.Z' >&2; exit 1; }
+
+      - name: Check out launcher
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/launcher
+          ref: ${{ inputs.launcher_ref }}
+          path: launcher
+          persist-credentials: false
+
+      - name: Check out backend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/backend
+          ref: ${{ inputs.service_ref }}
+          path: backend
+          persist-credentials: false
+
+      - name: Check out Browser Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/browser-agent
+          ref: ${{ inputs.service_ref }}
+          path: browser-agent
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/frontend
+          ref: ${{ inputs.service_ref }}
+          path: frontend
+          persist-credentials: false
+
+      - name: Check out Generation Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/generation-agent
+          ref: ${{ inputs.service_ref }}
+          path: generation-agent
+          persist-credentials: false
+
+      - name: Check out infrastructure
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/infra
+          ref: ${{ inputs.service_ref }}
+          path: infra
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install AppImage build tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --location --retry 3 \
+            --output "$HOME/.local/bin/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$HOME/.local/bin/appimagetool"
+
+      - name: Build AppImage
+        working-directory: launcher
+        shell: bash
+        run: bash ./gradlew :desktopApp:packageLinuxAppImage -Pnightly "-PnightlyVersion=$VERSION" --no-daemon --console=plain
+
+      - name: Write checksum
+        shell: bash
+        run: |
+          cd launcher/desktopApp/build/compose/binaries/main/appimage
+          file="HH-Clicker-${VERSION}-nightly-x86_64.AppImage"
+          test -s "$file"
+          sha256sum "$file" > "$file.sha256"
+
+      - name: Upload AppImage and checksum
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-appimage-${{ inputs.version }}
+          path: |
+            launcher/desktopApp/build/compose/binaries/main/appimage/*.AppImage
+            launcher/desktopApp/build/compose/binaries/main/appimage/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

@@ -66,3 +66,17 @@ gh workflow run release.yml --repo hh-clicker/.github --ref master -f tag=v2.0.0
 Используется текущий workflow выбранной ветки и исходники компонентов указанного тега.
 Тег должен существовать в launcher и соответствовать его версии и манифесту.
 Опубликованный релиз не изменяется; повторная загрузка допустима только для draft.
+
+## Пробная Linux-сборка
+
+Отдельный workflow `linux-appimage.yml` вручную собирает nightly AppImage из отправленных в GitHub
+веток, тегов или SHA. Он сохраняет AppImage и SHA-256 в артефактах Actions на 7 дней,
+не создаёт релиз и не загружает файлы в draft. Локальные незакоммиченные изменения в CI не попадают.
+Для первого прогона, когда согласованные изменения отправлены в `master` шести репозиториев:
+
+```powershell
+gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f version=2.0.1 -f launcher_ref=master -f service_ref=master
+```
+
+Значение `version` должно быть не ниже базовой версии в `launcher/gradle.properties`.
+Перед добавлением Linux-файла к draft-релизу проверьте его запуск на Debian 13 и Arch.

@@ -20,10 +20,16 @@
   &nbsp; · &nbsp;
   <a href="https://github.com/hh-clicker/.github/releases">Релизы</a>
   &nbsp; · &nbsp;
+  <a href="https://github.com/hh-clicker/launcher/blob/master/LINUX.md">Linux</a>
+  &nbsp; · &nbsp;
   <a href="#help">Решение проблем</a>
 </p>
 
 ---
+
+Stable-установщик доступен для Windows. Linux AppImage пока проходит проверку;
+[отдельная инструкция для Linux](https://github.com/hh-clicker/launcher/blob/master/LINUX.md)
+описывает его запуск и работу из исходников без лаунчера.
 
 ## Содержание
 
