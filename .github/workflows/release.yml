@@ -322,3 +322,21 @@ jobs:
           (cd "$directory" && sha256sum "$(basename "$file")" > "$(basename "$file").sha256")
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
           gh release upload "$RELEASE_TAG" "$file" "$file.sha256" --clobber
+
+  macos_intel:
+    name: Build macOS Intel DMG
+    needs: linux
+    uses: ./.github/workflows/macos-release.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      architecture: x64
+    secrets: inherit
+
+  macos_arm64:
+    name: Build macOS Apple Silicon DMG
+    needs: macos_intel
+    uses: ./.github/workflows/macos-release.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      architecture: arm64
+    secrets: inherit

@@ -1,0 +1,175 @@
+name: Build release macOS DMG
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Existing stable release tag (vX.Y.Z)'
+        required: true
+        type: string
+      architecture:
+        description: 'x64 or arm64'
+        required: true
+        type: string
+    secrets:
+      RELEASE_REPOSITORIES_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build macOS ${{ inputs.architecture }} DMG
+    runs-on: ${{ inputs.architecture == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      EXPECTED_ARCH: ${{ inputs.architecture == 'arm64' && 'arm64' || 'x86_64' }}
+      ARTIFACT_ARCH: ${{ inputs.architecture }}
+
+    steps:
+      - name: Check out launcher
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/launcher
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          path: launcher
+          persist-credentials: false
+
+      - name: Read and validate release definition
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$ARTIFACT_ARCH" = arm64 || "$ARTIFACT_ARCH" = x64 ]]
+          version="${RELEASE_TAG#v}"
+          grep -qx "hhClickerVersion=$version" launcher/gradle.properties
+          test "$(git -C launcher rev-parse HEAD)" = "$(git -C launcher rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          definition="launcher/releases/$version/release.json"
+          test -f "$definition"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$definition")" = "$version"
+          for name in backend browser-agent frontend generation-agent infra; do
+            commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["repositories"][sys.argv[2]]["commit"])' "$definition" "$name")"
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+            echo "${name//-/_}=$commit" >> "$GITHUB_OUTPUT"
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check out backend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/backend
+          ref: ${{ steps.release.outputs.backend }}
+          path: backend
+          persist-credentials: false
+
+      - name: Check out Browser Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/browser-agent
+          ref: ${{ steps.release.outputs.browser_agent }}
+          path: browser-agent
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/frontend
+          ref: ${{ steps.release.outputs.frontend }}
+          path: frontend
+          persist-credentials: false
+
+      - name: Check out Generation Agent
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/generation-agent
+          ref: ${{ steps.release.outputs.generation_agent }}
+          path: generation-agent
+          persist-credentials: false
+
+      - name: Check out infrastructure
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          repository: hh-clicker/infra
+          ref: ${{ steps.release.outputs.infra }}
+          path: infra
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          architecture: ${{ inputs.architecture == 'arm64' && 'aarch64' || 'x64' }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          architecture: ${{ inputs.architecture }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Check build architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          node -e 'if (process.arch !== process.argv[1]) process.exit(1)' "$ARTIFACT_ARCH"
+
+      - name: Build stable DMG
+        working-directory: launcher
+        shell: bash
+        run: bash ./gradlew :desktopApp:packageDmg --no-daemon --console=plain
+
+      - name: Verify package and write checksum
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          app="launcher/desktopApp/build/compose/binaries/main/app/HH Clicker Launcher.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = org.hhclicker.launcher
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" = 14.0
+          test -s "$app/Contents/app/resources/.hh-clicker-bundle"
+          test -s "$app/Contents/app/resources/browser-agent/dist/main.js"
+          test -s "$app/Contents/app/resources/release-manifest.json"
+          python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["version"] == sys.argv[2] and m.get("build", {}).get("channel") != "nightly"' "$app/Contents/app/resources/release-manifest.json" "$VERSION"
+          test "$(lipo -archs "$app/Contents/MacOS/HH Clicker Launcher")" = "$EXPECTED_ARCH"
+          jvm="$(find "$app/Contents/runtime" -type f -name libjvm.dylib -print)"
+          test -f "$jvm"
+          test "$(lipo -archs "$jvm")" = "$EXPECTED_ARCH"
+          source="launcher/desktopApp/build/compose/binaries/main/dmg/HH Clicker Launcher-${VERSION}.dmg"
+          test -s "$source"
+          hdiutil verify "$source"
+          destination="artifacts/macos-$ARTIFACT_ARCH"
+          mkdir -p "$destination"
+          file="HH-Clicker-${VERSION}-macos-${ARTIFACT_ARCH}.dmg"
+          cp "$source" "$destination/$file"
+          cd "$destination"
+          shasum -a 256 "$file" > "$file.sha256"
+
+      - name: Upload DMG to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          file="artifacts/macos-$ARTIFACT_ARCH/HH-Clicker-$VERSION-macos-$ARTIFACT_ARCH.dmg"
+          test -s "$file"
+          test -s "$file.sha256"
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+          gh release upload "$RELEASE_TAG" "$file" "$file.sha256" --clobber
