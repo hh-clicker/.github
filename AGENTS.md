@@ -7,7 +7,8 @@
 ## Карта кода
 
 - `profile/README.md` — полное руководство, отображаемое на главной организации.
-- `.github/workflows/release.yml` — сборка installer и draft-релиза по тегу `v*`.
+- `.github/workflows/release.yml` — сборка Windows EXE, Linux AppImage, macOS Intel/ARM DMG и draft-релиза по тегу `v*`.
+- `.github/workflows/macos-release.yml` — общий reusable workflow двух stable macOS-сборок.
 - `RELEASING.md` — порядок выпуска и проверка артефактов.
 
 ## Инварианты

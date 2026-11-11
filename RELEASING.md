@@ -57,11 +57,12 @@ release notes. Перед публикацией проверьте состав
 
 ```powershell
 .\gradlew.bat :shared:jvmTest --console=plain
-.\gradlew.bat --% :desktopApp:packageWindowsInstaller -Pnightly -PnightlyVersion=2.0.0 --console=plain
+.\gradlew.bat --% :desktopApp:packageWindowsInstaller -Pnightly --console=plain
 ```
 
-Укажите числовую версию, совместимую с установленной. Nightly использует production-данные;
-для разрушительных проверок нужна отдельная тестовая установка.
+Без `-PnightlyVersion` берётся следующий patch после `hhClickerVersion`. Явная версия должна быть
+не ниже базовой версии launcher; номер ниже базы отклоняется до упаковки.
+Nightly использует production-данные; для разрушительных проверок нужна отдельная тестовая установка.
 
 
 ## Ручной запуск для существующего тега
@@ -69,7 +70,8 @@ release notes. Перед публикацией проверьте состав
 Workflow можно запустить из Actions с параметром tag или через CLI:
 
 ```powershell
-gh workflow run release.yml --repo hh-clicker/.github --ref master -f tag=v2.0.0
+$tag = 'vX.Y.Z' # Замените на существующий тег подготавливаемого draft-релиза.
+gh workflow run release.yml --repo hh-clicker/.github --ref master -f "tag=$tag"
 ```
 
 Используется текущий workflow выбранной ветки и исходники компонентов указанного тега.
@@ -81,10 +83,10 @@ gh workflow run release.yml --repo hh-clicker/.github --ref master -f tag=v2.0.0
 Отдельный workflow `linux-appimage.yml` вручную собирает nightly AppImage из отправленных в GitHub
 веток, тегов или SHA. Он сохраняет AppImage и SHA-256 в артефактах Actions на 7 дней,
 не создаёт релиз и не загружает файлы в draft. Локальные незакоммиченные изменения в CI не попадают.
-Для первого прогона, когда согласованные изменения отправлены в `master` шести репозиториев:
+Для сборки из текущих отправленных веток `master` шести репозиториев:
 
 ```powershell
-gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f version=2.0.1 -f launcher_ref=master -f service_ref=master
+gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f version=3.0.1 -f launcher_ref=master -f service_ref=master
 ```
 
 Значение `version` должно быть не ниже базовой версии в `launcher/gradle.properties`.
@@ -102,8 +104,8 @@ Launcher и пять сервисов берутся из GitHub; локальн
 в выбранные ветки. Для launcher требуется версия кода с macOS-упаковкой.
 
 ```powershell
-gh workflow run macos-dmg-intel.yml --repo hh-clicker/.github --ref master -f version=2.1.1 -f launcher_ref=master -f service_ref=master
-gh workflow run macos-dmg-arm64.yml --repo hh-clicker/.github --ref master -f version=2.1.1 -f launcher_ref=master -f service_ref=master
+gh workflow run macos-dmg-intel.yml --repo hh-clicker/.github --ref master -f version=3.0.1 -f launcher_ref=master -f service_ref=master
+gh workflow run macos-dmg-arm64.yml --repo hh-clicker/.github --ref master -f version=3.0.1 -f launcher_ref=master -f service_ref=master
 ```
 
 Каждый workflow проверяет архитектуру приложения и встроенной JVM, наличие Browser Agent,
