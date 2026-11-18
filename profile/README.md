@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Linux-x86__64-FCC624?style=flat-square" alt="Linux x86_64">
   <img src="https://img.shields.io/badge/macOS-Intel%20%7C%20Apple%20Silicon-555555?style=flat-square" alt="macOS Intel и Apple Silicon">
   <img src="https://img.shields.io/badge/запуск-локально-2da44e?style=flat-square" alt="Локальный запуск">
-  <img src="https://img.shields.io/github/v/release/hh-clicker/.github?style=flat-square&label=версия&color=ff5b0a" alt="Последний стабильный релиз">
+  <img src="https://img.shields.io/github/v/release/hh-clicker/.github?style=flat-square&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=ff5b0a" alt="Последний стабильный релиз">
 </p>
 
 <p align="center">
