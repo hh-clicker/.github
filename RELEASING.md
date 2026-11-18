@@ -78,6 +78,20 @@ gh workflow run release.yml --repo hh-clicker/.github --ref master -f "tag=$tag"
 Тег должен существовать в launcher и соответствовать его версии и манифесту.
 Опубликованный релиз не изменяется; повторная загрузка допустима только для draft.
 
+## Пробная Rust portable-сборка
+
+`rust-windows-portable.yml` запускается только вручную и сохраняет Windows x64 EXE в Actions artifacts.
+Параметры `rust_ref` и `launcher_ref` принимают ветку, тег или SHA; теги для пробного запуска не нужны.
+Версии `Cargo.toml`, Rust `release-inputs.json` и выбранного Kotlin `gradle.properties` должны совпадать.
+Пять сервисов берутся по точным SHA из Rust-манифеста. Сначала отправьте эти коммиты на GitHub.
+
+```powershell
+gh workflow run rust-windows-portable.yml --repo hh-clicker/.github --ref master -f rust_ref=master -f launcher_ref=master
+```
+
+Workflow не создаёт теги, коммиты или релизы и не добавляет EXE в стабильный draft автоматически.
+Перед публикацией portable-файла проверьте его работу отдельно от основной установки.
+
 ## Пробная Linux-сборка
 
 Отдельный workflow `linux-appimage.yml` вручную собирает nightly AppImage из отправленных в GitHub

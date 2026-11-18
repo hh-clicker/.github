@@ -1,0 +1,126 @@
+name: Rust Windows portable trial
+
+on:
+  workflow_dispatch:
+    inputs:
+      rust_ref:
+        description: 'hh-clicker/launcher-rust branch, tag or commit'
+        required: true
+        default: master
+        type: string
+      launcher_ref:
+        description: 'Kotlin launcher ref used to verify the shared product version'
+        required: true
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-windows-portable-trial
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Windows x64 portable EXE
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out Rust launcher
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/launcher-rust
+          ref: ${{ inputs.rust_ref }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: launcher-rust
+          persist-credentials: false
+
+      - name: Check out Kotlin version reference
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/launcher
+          ref: ${{ inputs.launcher_ref }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: launcher
+          persist-credentials: false
+
+      - name: Read and validate pinned inputs
+        id: inputs
+        run: |
+          python launcher-rust/scripts/release-inputs.py --github-output $env:GITHUB_OUTPUT --launcher-properties launcher/gradle.properties
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid release inputs or product version' }
+
+      - name: Check out backend
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/backend
+          ref: ${{ steps.inputs.outputs.backend }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: backend
+          persist-credentials: false
+
+      - name: Check out Browser Agent
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/browser-agent
+          ref: ${{ steps.inputs.outputs.browser_agent }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: browser-agent
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/frontend
+          ref: ${{ steps.inputs.outputs.frontend }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: frontend
+          persist-credentials: false
+
+      - name: Check out Generation Agent
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/generation-agent
+          ref: ${{ steps.inputs.outputs.generation_agent }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: generation-agent
+          persist-credentials: false
+
+      - name: Check out infrastructure
+        uses: actions/checkout@v6
+        with:
+          repository: hh-clicker/infra
+          ref: ${{ steps.inputs.outputs.infra }}
+          token: ${{ secrets.RELEASE_REPOSITORIES_TOKEN || github.token }}
+          path: infra
+          persist-credentials: false
+
+      - name: Set up Node.js for TypeScript compilation
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.20.0'
+
+      - name: Fetch verified local Rust toolchain and locked crates
+        working-directory: launcher-rust
+        run: |
+          python scripts/bootstrap.py
+          if ($LASTEXITCODE -ne 0) { throw 'Toolchain bootstrap failed' }
+          . ./scripts/env.ps1
+          cargo fetch --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo fetch failed' }
+
+      - name: Stage pinned payload, test, build and verify EXE
+        working-directory: launcher-rust
+        run: ./scripts/build.ps1 -Test -Package -SourcesDir $env:GITHUB_WORKSPACE
+
+      - name: Store portable EXE
+        uses: actions/upload-artifact@v7
+        with:
+          name: HH-Clicker-Rust-portable-${{ steps.inputs.outputs.version }}-win-x64
+          path: launcher-rust/dist/HH-Clicker-Rust-portable-${{ steps.inputs.outputs.version }}-win-x64.exe
+          if-no-files-found: error
+          retention-days: 14
