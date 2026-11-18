@@ -129,10 +129,12 @@ HH Clicker — локальное приложение для Windows, Linux и 
 #### Windows
 
 Для Windows также доступен экспериментальный [лаунчер на Rust](https://github.com/hh-clicker/launcher-rust#readme).
-Пока его собирает отдельный ручной [workflow Rust Windows portable trial](https://github.com/hh-clicker/.github/actions/workflows/rust-windows-portable.yml):
-готовый EXE находится в **Artifacts** успешного запуска, а не автоматически среди файлов стабильного релиза.
+Начиная с выпуска 3.1.0 он собирается основным release workflow: файл
+`HH-Clicker-Rust-portable-<версия>-win-x64.exe` и его SHA-256 добавляются в **Assets** релиза.
+Для пробных сборок остаётся отдельный ручной [workflow Rust Windows portable trial](https://github.com/hh-clicker/.github/actions/workflows/rust-windows-portable.yml),
+сохраняющий EXE в **Artifacts** успешного запуска.
 
-Распакуйте EXE в доступную для записи папку. Рядом будут созданы `app` с ресурсами и `data` с настройками,
+Сохраните EXE в доступную для записи папку и запустите его. Рядом будут созданы `app` с ресурсами и `data` с настройками,
 БД и профилями этой копии. Данные основной установки автоматически не переносятся; для AI потребуется
 отдельный вход в Codex. Подготовка компонентов и дальнейшая работа выполняются из лаунчера.
 После установки Chrome один раз завершите его первоначальную настройку вручную.

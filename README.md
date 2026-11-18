@@ -4,7 +4,8 @@
 сопроводительных писем, очереди откликов и аналитики сохранённых вакансий.
 Форматы поставки: Windows-установщик, Linux AppImage для x86_64 и macOS DMG для Intel и Apple Silicon.
 Для Windows также есть экспериментальный [Rust portable launcher](https://github.com/hh-clicker/launcher-rust#readme).
-Пробная сборка доступна через отдельный ручной [workflow](https://github.com/hh-clicker/.github/actions/workflows/rust-windows-portable.yml).
+Начиная с 3.1.0 он включён в основной выпуск отдельным EXE без установщика.
+Пробная сборка также доступна через отдельный ручной [workflow](https://github.com/hh-clicker/.github/actions/workflows/rust-windows-portable.yml).
 
 ## Руководство пользователя
 

@@ -197,9 +197,17 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Failed to create the draft release.' }
           }
 
+  rust_windows:
+    name: Build Windows Rust portable
+    needs: build
+    uses: ./.github/workflows/rust-release.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets: inherit
+
   linux:
     name: Build Linux AppImage
-    needs: build
+    needs: rust_windows
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:

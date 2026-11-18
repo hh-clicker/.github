@@ -1,6 +1,6 @@
 # Выпуск HH Clicker
 
-Release workflow находится в этом репозитории. Push тега `vX.Y.Z` запускает сборки Windows → Linux → macOS Intel → macOS Apple Silicon
+Release workflow находится в этом репозитории. Push тега `vX.Y.Z` запускает сборки Windows installer → Windows Rust portable → Linux → macOS Intel → macOS Apple Silicon
 и создаёт draft-релиз здесь. Обычный push ветки сборку релиза не запускает.
 Каталог версий и pinned SHA остаётся в [launcher/releases](https://github.com/hh-clicker/launcher/tree/master/releases).
 
@@ -21,8 +21,9 @@ Rollback установщика восстанавливает application, но
 2. Соберите и проверьте nightly. Зафиксируйте результаты проверки вне исходников проекта.
 3. Создайте подписанные коммиты компонентов. Запишите окончательные SHA пяти сервисов
    в `launcher/releases/<version>/release.json`, обновите notes.ru.md и hhClickerVersion.
-4. Создайте подписанный коммит launcher. Подпишите тег `v<version>` на согласованных
-   коммитах шести компонентов. Проверьте подписи и соответствие pinned SHA.
+4. Согласуйте версию и пять SHA в Rust `release-inputs.json` с Kotlin-манифестом и `Cargo.toml`.
+   Создайте подписанные коммиты launcher и launcher-rust. Подпишите тег `v<version>` на согласованных
+   коммитах семи компонентов, включая оба лаунчера. Проверьте подписи и соответствие pinned SHA.
 5. Отправьте нужные ветки и конкретные теги компонентов. Не отправляйте все локальные теги.
 6. Подготовьте пользовательское руководство и создайте подписанный тег той же версии
    в `.github`. Отправляйте его последним: это запускает release workflow.
@@ -33,14 +34,19 @@ Rollback установщика восстанавливает application, но
 ## Сборка и draft
 
 Windows runner устанавливает Java 21 для launcher, Node.js 24 и Inno Setup. После создания draft
-Linux runner собирает stable AppImage, затем отдельные macOS jobs собирают stable DMG для Intel и Apple Silicon.
+отдельный Windows job собирает Rust portable EXE, Linux runner собирает stable AppImage,
+затем отдельные macOS jobs собирают stable DMG для Intel и Apple Silicon.
 Оба macOS jobs вызывают общий `macos-release.yml`: Intel использует `macos-15-intel`, ARM — `macos-15`.
 Gradle собирает
 артефакты из согласованного исходного дерева. Для публичных компонентов достаточно
 стандартного github.token. При чтении приватных компонентов нужен отдельный secret
 RELEASE_REPOSITORIES_TOKEN с правом чтения; не записывайте его в файлы проекта.
 
-Workflow загружает EXE, AppImage и два DMG в draft-релиз; рядом с каждым файлом находится отдельный SHA-256.
+Workflow загружает Windows installer, Rust portable EXE, AppImage и два DMG в draft-релиз;
+рядом с каждым файлом находится отдельный SHA-256.
+Rust-файл называется `HH-Clicker-Rust-portable-<version>-win-x64.exe`.
+Reusable workflow `rust-release.yml` получает оба лаунчера по релизному тегу и проверяет
+совпадение версии и пяти SHA сервисов. Несовпадение блокирует Rust-сборку.
 macOS-файлы называются `HH-Clicker-<version>-macos-x64.dmg` и `HH-Clicker-<version>-macos-arm64.dmg`.
 Архивировать DMG для скачивания не требуется. Workflow применяет пользовательские
 release notes. Перед публикацией проверьте состав, checksum, версию и работу installer.
@@ -75,7 +81,7 @@ gh workflow run release.yml --repo hh-clicker/.github --ref master -f "tag=$tag"
 ```
 
 Используется текущий workflow выбранной ветки и исходники компонентов указанного тега.
-Тег должен существовать в launcher и соответствовать его версии и манифесту.
+Тег должен существовать в launcher и launcher-rust и соответствовать их версиям и манифестам.
 Опубликованный релиз не изменяется; повторная загрузка допустима только для draft.
 
 ## Пробная Rust portable-сборка
@@ -100,7 +106,8 @@ Workflow не создаёт теги, коммиты или релизы и н�
 Для сборки из текущих отправленных веток `master` шести репозиториев:
 
 ```powershell
-gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f version=3.0.1 -f launcher_ref=master -f service_ref=master
+$nightlyVersion = 'X.Y.Z' # Замените на номер не ниже базы выбранного launcher_ref.
+gh workflow run linux-appimage.yml --repo hh-clicker/.github --ref master -f "version=$nightlyVersion" -f launcher_ref=master -f service_ref=master
 ```
 
 Значение `version` должно быть не ниже базовой версии в `launcher/gradle.properties`.
@@ -118,8 +125,9 @@ Launcher и пять сервисов берутся из GitHub; локальн
 в выбранные ветки. Для launcher требуется версия кода с macOS-упаковкой.
 
 ```powershell
-gh workflow run macos-dmg-intel.yml --repo hh-clicker/.github --ref master -f version=3.0.1 -f launcher_ref=master -f service_ref=master
-gh workflow run macos-dmg-arm64.yml --repo hh-clicker/.github --ref master -f version=3.0.1 -f launcher_ref=master -f service_ref=master
+$nightlyVersion = 'X.Y.Z' # Замените на номер не ниже базы выбранного launcher_ref.
+gh workflow run macos-dmg-intel.yml --repo hh-clicker/.github --ref master -f "version=$nightlyVersion" -f launcher_ref=master -f service_ref=master
+gh workflow run macos-dmg-arm64.yml --repo hh-clicker/.github --ref master -f "version=$nightlyVersion" -f launcher_ref=master -f service_ref=master
 ```
 
 Каждый workflow проверяет архитектуру приложения и встроенной JVM, наличие Browser Agent,
@@ -134,6 +142,6 @@ gh workflow run macos-dmg-arm64.yml --repo hh-clicker/.github --ref master -f ve
 Если старая версия больше не работает (например, после несовместимого изменения HH), поднимите
 `minimumSupportedVersion` до первого релиза с исправлением и отправьте изменение в `master`.
 Порог можно подготовить вместе с релизом: лаунчер применяет его только если версия уже доступна
-среди опубликованных стабильных релизов. Пока 3.0.0 находится в draft, порог 3.0.0 не делает обновление
-критическим. Обычное обновление не требует изменения файла. Понижать порог после следующего релиза
+среди опубликованных стабильных релизов. Пока версия, указанная в пороге, находится только в draft,
+новый порог не делает обновление критическим. Обычное обновление не требует изменения файла. Понижать порог после следующего релиза
 не нужно: он относится ко всем старым версиям.
